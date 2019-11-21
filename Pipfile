@@ -1,0 +1,17 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+
+[packages]
+torch = "==1.1.0"
+transformers = "*"
+tensorboardx = "*"
+multiprocess = "*"
+pyrouge = "*"
+pytorch-pretrained-bert = "*"
+
+[requires]
+python_version = "3.7"
