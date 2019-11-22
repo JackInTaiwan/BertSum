@@ -4,7 +4,7 @@ import random
 
 import torch
 
-from others.logging import logger
+from src.others.logging import logger
 
 
 
@@ -227,12 +227,13 @@ class DataIterator(object):
         while True:
             self.batches = self.create_batches()
             for idx, minibatch in enumerate(self.batches):
-                # fast-forward if loaded from state
-                if self._iterations_this_epoch > idx:
-                    continue
-                self.iterations += 1
-                self._iterations_this_epoch += 1
-                batch = Batch(minibatch, self.device, self.is_test)
+                if len(minibatch) > 0:
+                    # fast-forward if loaded from state
+                    if self._iterations_this_epoch > idx:
+                        continue
+                    self.iterations += 1
+                    self._iterations_this_epoch += 1
+                    batch = Batch(minibatch, self.device, self.is_test)
 
-                yield batch
+                    yield batch
             return

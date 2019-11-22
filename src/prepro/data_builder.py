@@ -7,15 +7,16 @@ import os
 import re
 import subprocess
 import time
-from os.path import join as pjoin
-
 import torch
+import stanfordnlp
+
 from multiprocess import Pool
+from tqdm import tqdm
 from pytorch_pretrained_bert import BertTokenizer
 
-from others.logging import logger
-from others.utils import clean
-from prepro.utils import _get_word_ngrams
+from src.others.logging import logger
+from src.others.utils import clean
+from src.prepro.utils import _get_word_ngrams
 
 
 def load_json(p, lower):
@@ -204,9 +205,9 @@ def format_to_bert(args):
         datasets = ['train', 'valid', 'test']
     for corpus_type in datasets:
         a_lst = []
-        for json_f in glob.glob(pjoin(args.raw_path, '*' + corpus_type + '.*.json')):
+        for json_f in glob.glob(os.path.join(args.raw_path, '*' + corpus_type + '.*.json')):
             real_name = json_f.split('/')[-1]
-            a_lst.append((json_f, args, pjoin(args.save_path, real_name.replace('json', 'bert.pt'))))
+            a_lst.append((json_f, args, os.path.join(args.save_path, real_name.replace('json', 'bert.pt'))))
         print(a_lst)
         pool = Pool(args.n_cpus)
         for d in pool.imap(_format_to_bert, a_lst):
@@ -217,32 +218,45 @@ def format_to_bert(args):
 
 
 def tokenize(args):
-    stories_dir = os.path.abspath(args.raw_path)
-    tokenized_stories_dir = os.path.abspath(args.save_path)
+    stanfordnlp_models_dir, lang = args.snlp_models_dir, args.lang
+    raw_data_dir = args.raw_path
+    tokenized_stories_dir = args.save_path
 
-    print("Preparing to tokenize %s to %s..." % (stories_dir, tokenized_stories_dir))
-    stories = os.listdir(stories_dir)
-    # make IO list file
-    print("Making list of files to tokenize...")
-    with open("mapping_for_corenlp.txt", "w") as f:
-        for s in stories:
-            if (not s.endswith('story')):
-                continue
-            f.write("%s\n" % (os.path.join(stories_dir, s)))
-    command = ['java', 'edu.stanford.nlp.pipeline.StanfordCoreNLP' ,'-annotators', 'tokenize,ssplit', '-ssplit.newlineIsSentenceBreak', 'always', '-filelist', 'mapping_for_corenlp.txt', '-outputFormat', 'json', '-outputDirectory', tokenized_stories_dir]
-    print("Tokenizing %i files in %s and saving in %s..." % (len(stories), stories_dir, tokenized_stories_dir))
-    subprocess.call(command)
-    print("Stanford CoreNLP Tokenizer has finished.")
-    os.remove("mapping_for_corenlp.txt")
+    if not os.path.isdir(stanfordnlp_models_dir):
+        stanfordnlp.download(lang, resource_dir=stanfordnlp_models_dir, confirm_if_exists=True)      # default "en"
+    
+    snlp = stanfordnlp.Pipeline(processors="tokenize",lang=lang, models_dir=stanfordnlp_models_dir)
 
-    # Check that the tokenized stories directory contains the same number of files as the original directory
-    num_orig = len(os.listdir(stories_dir))
-    num_tokenized = len(os.listdir(tokenized_stories_dir))
-    if num_orig != num_tokenized:
-        raise Exception(
-            "The tokenized stories directory %s contains %i files, but it should contain the same number as %s (which has %i files). Was there an error during tokenization?" % (
-            tokenized_stories_dir, num_tokenized, stories_dir, num_orig))
-    print("Successfully finished tokenizing %s to %s.\n" % (stories_dir, tokenized_stories_dir))
+    valid_file_count = 0
+    with tqdm(os.listdir(raw_data_dir)) as pbar:
+        for fn in pbar:
+            # check the file extension type
+            if fn.split(".")[-1] != "story": continue
+            else: valid_file_count += 1
+
+            fp = os.path.join(raw_data_dir, fn)
+            with open(fp, "r") as f:
+                data = f.read()
+                doc = snlp(data)
+            
+            # preprocess sentences
+            sentences = []
+            for i, sent in enumerate(doc.sentences):
+                sent_ = {}
+                sent_["index"] = i
+                sent_["tokens"] = list(map(lambda token: {"index": int(token.index), "word": token.text, "originalText": token.text}, sent.tokens))
+                sentences.append(sent_)
+
+            output = {}
+            output["docId"] = fn.split('.')[0]
+            output["sentences"] = sentences
+
+            # save the tokenized ouput json file
+            output_fp = os.path.join(tokenized_stories_dir, "{}.json".format(fn.split(".")[0]))
+            with open(output_fp, "w") as f:
+                json.dump(output, f)
+
+    print("Finish tokenizing {} files in {} to {}.".format(valid_file_count, raw_data_dir, tokenized_stories_dir))
 
 
 def _format_to_bert(params):
@@ -279,11 +293,11 @@ def format_to_lines(args):
     corpus_mapping = {}
     for corpus_type in ['valid', 'test', 'train']:
         temp = []
-        for line in open(pjoin(args.map_path, 'mapping_' + corpus_type + '.txt')):
+        for line in open(os.path.join(args.map_path, 'mapping_' + corpus_type + '.txt')):
             temp.append(hashhex(line.strip()))
         corpus_mapping[corpus_type] = {key.strip(): 1 for key in temp}
     train_files, valid_files, test_files = [], [], []
-    for f in glob.glob(pjoin(args.raw_path, '*.json')):
+    for f in glob.glob(os.path.join(args.raw_path, '*.json')):
         real_name = f.split('/')[-1].split('.')[0]
         if (real_name in corpus_mapping['valid']):
             valid_files.append(f)

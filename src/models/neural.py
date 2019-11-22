@@ -235,4 +235,3 @@ class MultiHeadedAttention(nn.Module):
         # aeq(d, d_)
 
         # Return one attn
-
