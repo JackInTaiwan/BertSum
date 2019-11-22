@@ -14,12 +14,12 @@ import time
 import torch
 from pytorch_pretrained_bert import BertConfig
 
-import distributed
-from models import data_loader, model_builder
-from models.data_loader import load_dataset
-from models.model_builder import Summarizer
-from models.trainer import build_trainer
-from others.logging import logger, init_logger
+import src.distributed
+from src.models import data_loader, model_builder
+from src.models.data_loader import load_dataset
+from src.models.model_builder import Summarizer
+from src.models.trainer import build_trainer
+from src.others.logging import logger, init_logger
 
 model_flags = ['hidden_size', 'ff_size', 'heads', 'inter_layers','encoder','ff_actv', 'use_interval','rnn_size']
 
@@ -267,7 +267,6 @@ def train(args, device_id):
     else:
         optim = model_builder.build_optim(args, model, None)
 
-    logger.info(model)
     trainer = build_trainer(args, device_id, model, optim)
     trainer.train(train_iter_fct, args.train_steps)
 
@@ -275,8 +274,6 @@ def train(args, device_id):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-
-
 
     parser.add_argument("-encoder", default='classifier', type=str, choices=['classifier','transformer','rnn','baseline'])
     parser.add_argument("-mode", default='train', type=str, choices=['train','validate','test'])

@@ -4,8 +4,8 @@
 import argparse
 import time
 
-from others.logging import init_logger
-from prepro import data_builder
+from src.others.logging import init_logger
+from src.prepro import data_builder
 
 
 def do_format_to_lines(args):
@@ -49,9 +49,13 @@ if __name__ == '__main__':
     parser.add_argument('-min_src_ntokens', default=5, type=int)
     parser.add_argument('-max_src_ntokens', default=200, type=int)
 
+    # for StanfordNLP module
+    parser.add_argument("-snlp_models_dir", default="./stanfordnlp_resources/", help="dir for stanfordnlp models")
+    parser.add_argument("-lang", default="en", help="language of the corpus")
+
     parser.add_argument("-lower", type=str2bool, nargs='?',const=True,default=True)
 
-    parser.add_argument('-log_file', default='../../logs/cnndm.log')
+    parser.add_argument('-log_file')
 
     parser.add_argument('-dataset', default='', help='train, valid or test, defaul will process all datasets')
 
