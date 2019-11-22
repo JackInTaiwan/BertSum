@@ -208,11 +208,12 @@ def format_to_bert(args):
         for json_f in glob.glob(os.path.join(args.raw_path, '*' + corpus_type + '.*.json')):
             real_name = json_f.split('/')[-1]
             a_lst.append((json_f, args, os.path.join(args.save_path, real_name.replace('json', 'bert.pt'))))
-        print(a_lst)
+            print('----use')
         pool = Pool(args.n_cpus)
         for d in pool.imap(_format_to_bert, a_lst):
+            print('----use d')
             pass
-
+        print("----end")
         pool.close()
         pool.join()
 
@@ -264,15 +265,16 @@ def _format_to_bert(params):
     if (os.path.exists(save_file)):
         logger.info('Ignore %s' % save_file)
         return
-
+    print('----_format use')
     bert = BertData(args)
-
+    print('---- after bertdata')
     logger.info('Processing %s' % json_file)
     jobs = json.load(open(json_file))
     datasets = []
     for d in jobs:
         source, tgt = d['src'], d['tgt']
         if (args.oracle_mode == 'greedy'):
+            print('---- use greedy')
             oracle_ids = greedy_selection(source, tgt, 3)
         elif (args.oracle_mode == 'combination'):
             oracle_ids = combination_selection(source, tgt, 3)
@@ -283,6 +285,7 @@ def _format_to_bert(params):
         b_data_dict = {"src": indexed_tokens, "labels": labels, "segs": segments_ids, 'clss': cls_ids,
                        'src_txt': src_txt, "tgt_txt": tgt_txt}
         datasets.append(b_data_dict)
+    print('----_format use 1')
     logger.info('Saving to %s' % save_file)
     torch.save(datasets, save_file)
     datasets = []
@@ -290,15 +293,25 @@ def _format_to_bert(params):
 
 
 def format_to_lines(args):
-    corpus_mapping = {}
+    # load mapping files
+    print('| Loading mapping files ...')
+    corpus_mapping = {"train": [], "valid": [], "test": []}
     for corpus_type in ['valid', 'test', 'train']:
         temp = []
-        for line in open(os.path.join(args.map_path, 'mapping_' + corpus_type + '.txt')):
+        mapping_fp = os.path.join(args.map_path, "mapping_{}.txt".format(corpus_type))
+        if not os.path.exists(mapping_fp):
+            print("Mapping file '{}' doesn't exist. Skip the type of mapping files.".format(mapping_fp))
+            continue
+        for line in open(mapping_fp):
             temp.append(hashhex(line.strip()))
+            temp.append(line.strip())
         corpus_mapping[corpus_type] = {key.strip(): 1 for key in temp}
+
+    # load corresponding tokenized json files
+    print('| Loading tokenized json files ...')
     train_files, valid_files, test_files = [], [], []
     for f in glob.glob(os.path.join(args.raw_path, '*.json')):
-        real_name = f.split('/')[-1].split('.')[0]
+        real_name = os.path.splitext(os.path.basename(f))
         if (real_name in corpus_mapping['valid']):
             valid_files.append(f)
         elif (real_name in corpus_mapping['test']):
@@ -306,6 +319,8 @@ def format_to_lines(args):
         elif (real_name in corpus_mapping['train']):
             train_files.append(f)
 
+    # convert to target lines json file
+    print('| Converting to line-based json files ...')
     corpora = {'train': train_files, 'valid': valid_files, 'test': test_files}
     for corpus_type in ['train', 'valid', 'test']:
         a_lst = [(f, args) for f in corpora[corpus_type]]
@@ -315,26 +330,24 @@ def format_to_lines(args):
         for d in pool.imap_unordered(_format_to_lines, a_lst):
             dataset.append(d)
             if (len(dataset) > args.shard_size):
-                pt_file = "{:s}.{:s}.{:d}.json".format(args.save_path, corpus_type, p_ct)
+                pt_file = os.path.join(args.save_path, "{}.{}.json".format(corpus_type, p_ct))
                 with open(pt_file, 'w') as save:
-                    # save.write('\n'.join(dataset))
                     save.write(json.dumps(dataset))
                     p_ct += 1
                     dataset = []
-
         pool.close()
         pool.join()
         if (len(dataset) > 0):
-            pt_file = "{:s}.{:s}.{:d}.json".format(args.save_path, corpus_type, p_ct)
+            pt_file = os.path.join(args.save_path, "{}.{}.json".format(corpus_type, p_ct))
             with open(pt_file, 'w') as save:
-                # save.write('\n'.join(dataset))
                 save.write(json.dumps(dataset))
                 p_ct += 1
                 dataset = []
+    
+    print('| Finish formating to lines-based json files !')
 
 
 def _format_to_lines(params):
     f, args = params
-    print(f)
     source, tgt = load_json(f, args.lower)
     return {'src': source, 'tgt': tgt}
