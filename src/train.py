@@ -209,7 +209,7 @@ def test(args, device_id, pt, step):
     model.load_cp(checkpoint)
     model.eval()
 
-    test_iter =data_loader.Dataloader(args, load_dataset(args, 'test', shuffle=False),
+    test_iter = data_loader.Dataloader(args, load_dataset(args, 'test', shuffle=False),
                                   args.batch_size, device,
                                   shuffle=False, is_test=True)
     trainer = build_trainer(args, device_id, model, None)
@@ -218,7 +218,7 @@ def test(args, device_id, pt, step):
 
 def baseline(args, cal_lead=False, cal_oracle=False):
 
-    test_iter =data_loader.Dataloader(args, load_dataset(args, 'test', shuffle=False),
+    test_iter = data_loader.Dataloader(args, load_dataset(args, 'test', shuffle=False),
                                   args.batch_size, device,
                                   shuffle=False, is_test=True)
 
@@ -313,7 +313,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-visible_gpus', default='-1', type=str)
     parser.add_argument('-gpu_ranks', default='0', type=str)
-    parser.add_argument('-log_file', default='../logs/cnndm.log')
+    parser.add_argument('-log_file')
     parser.add_argument('-dataset', default='')
     parser.add_argument('-seed', default=666, type=int)
 
@@ -327,7 +327,8 @@ if __name__ == '__main__':
     args.gpu_ranks = [int(i) for i in args.gpu_ranks.split(',')]
     os.environ["CUDA_VISIBLE_DEVICES"] = args.visible_gpus
 
-    init_logger(args.log_file)
+    # init_logger(args.log_file)
+    
     device = "cpu" if args.visible_gpus == '-1' else "cuda"
     device_id = 0 if device == "cuda" else -1
 

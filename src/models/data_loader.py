@@ -1,3 +1,4 @@
+import os
 import gc
 import glob
 import random
@@ -86,7 +87,8 @@ def load_dataset(args, corpus_type, shuffle):
         return dataset
 
     # Sort the glob output by file name (by increasing indexes).
-    pts = sorted(glob.glob(args.bert_data_path + '.' + corpus_type + '.[0-9]*.pt'))
+    pts = sorted(glob.glob(os.path.join(args.bert_data_path, '*{}.[0-9]*.pt'.format(corpus_type))))
+
     if pts:
         if (shuffle):
             random.shuffle(pts)
@@ -94,9 +96,7 @@ def load_dataset(args, corpus_type, shuffle):
         for pt in pts:
             yield _lazy_dataset_loader(pt, corpus_type)
     else:
-        # Only one inputters.*Dataset, simple!
-        pt = args.bert_data_path + '.' + corpus_type + '.pt'
-        yield _lazy_dataset_loader(pt, corpus_type)
+        raise ValueError("Cannot find bert data in the form of '{}'".format(os.path.join(args.bert_data_path, '*{}.[0-9]*.pt'.format(corpus_type))))
 
 
 def simple_batch_size_fn(new, count):

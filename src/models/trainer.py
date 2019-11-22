@@ -1,15 +1,17 @@
 import os
 
-import numpy as np
 import torch
+import numpy as np
+import src.distributed as distributed
+
+from tqdm import tqdm
 from tensorboardX import SummaryWriter
 
-import src.distributed
-# import onmt
 from src.models.reporter import ReportMgr
 from src.models.stats import Statistics
 from src.others.logging import logger
 from src.others.utils import test_rouge, rouge_results_to_str
+
 
 
 def _tally_parameters(model):
@@ -123,9 +125,8 @@ class Trainer(object):
         Return:
             None
         """
-        logger.info('Start training...')
+        logger.info('| Start training ...')
 
-        # step =  self.optim._step + 1
         step =  self.optim._step + 1
         true_batchs = []
         accum = 0
@@ -137,39 +138,37 @@ class Trainer(object):
         self._start_report_manager(start_time=total_stats.start_time)
 
         while step <= train_steps:
-
             reduce_counter = 0
-            for i, batch in enumerate(train_iter):
-                if self.n_gpu == 0 or (i % self.n_gpu == self.gpu_rank):
+            with tqdm(train_iter) as pbar:
+                for i, batch in enumerate(pbar):
+                    if self.n_gpu == 0 or (i % self.n_gpu == self.gpu_rank):
+                        true_batchs.append(batch)
+                        normalization += batch.batch_size
+                        accum += 1
+                        if accum == self.grad_accum_count:
+                            reduce_counter += 1
+                            if self.n_gpu > 1:
+                                normalization = sum(distributed
+                                                    .all_gather_list
+                                                    (normalization))
+                            self._gradient_accumulation(
+                                true_batchs, normalization, total_stats,
+                                report_stats)
 
-                    true_batchs.append(batch)
-                    normalization += batch.batch_size
-                    accum += 1
-                    if accum == self.grad_accum_count:
-                        reduce_counter += 1
-                        if self.n_gpu > 1:
-                            normalization = sum(distributed
-                                                .all_gather_list
-                                                (normalization))
+                            report_stats = self._maybe_report_training(
+                                step, train_steps,
+                                self.optim.learning_rate,
+                                report_stats)
 
-                        self._gradient_accumulation(
-                            true_batchs, normalization, total_stats,
-                            report_stats)
+                            true_batchs = []
+                            accum = 0
+                            normalization = 0
+                            if (step % self.save_checkpoint_steps == 0 and self.gpu_rank == 0):
+                                self._save(step)
 
-                        report_stats = self._maybe_report_training(
-                            step, train_steps,
-                            self.optim.learning_rate,
-                            report_stats)
-
-                        true_batchs = []
-                        accum = 0
-                        normalization = 0
-                        if (step % self.save_checkpoint_steps == 0 and self.gpu_rank == 0):
-                            self._save(step)
-
-                        step += 1
-                        if step > train_steps:
-                            break
+                            step += 1
+                            if step > train_steps:
+                                break
             train_iter = train_iter_fct()
 
         return total_stats
