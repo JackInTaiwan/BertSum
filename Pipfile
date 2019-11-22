@@ -12,6 +12,7 @@ tensorboardx = "*"
 multiprocess = "*"
 pyrouge = "*"
 pytorch-pretrained-bert = "*"
+stanfordnlp = "*"
 
 [requires]
 python_version = "3.7"
