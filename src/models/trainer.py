@@ -55,7 +55,6 @@ def build_trainer(args, device_id, model,
 
     trainer = Trainer(args, model, optim, grad_accum_count, n_gpu, gpu_rank, report_manager)
 
-    # print(tr)
     if (model):
         n_params = _tally_parameters(model)
         logger.info('* number of parameters: %d' % n_params)
@@ -263,7 +262,7 @@ class Trainer(object):
                             sent_scores = sent_scores + mask.float()
                             sent_scores = sent_scores.cpu().data.numpy()
                             selected_ids = np.argsort(-sent_scores, 1)
-                        # selected_ids = np.sort(selected_ids,1)
+
                         for i, idx in enumerate(selected_ids):
                             _pred = []
                             if(len(batch.src_str[i])==0):
@@ -295,6 +294,7 @@ class Trainer(object):
         if(step!=-1 and self.args.report_rouge):
             rouges = test_rouge(self.args.temp_dir, can_path, gold_path)
             logger.info('Rouges at step %d \n%s' % (step, rouge_results_to_str(rouges)))
+
         self._report_step(0, step, valid_stats=stats)
 
         return stats
@@ -322,7 +322,6 @@ class Trainer(object):
             loss = self.loss(sent_scores, labels.float())
             loss = (loss*mask.float()).sum()
             (loss/loss.numel()).backward()
-            # loss.div(float(normalization)).backward()
 
             batch_stats = Statistics(float(loss.cpu().data.numpy()), normalization)
 
@@ -354,21 +353,17 @@ class Trainer(object):
 
     def _save(self, step):
         real_model = self.model
-        # real_generator = (self.generator.module
-        #                   if isinstance(self.generator, torch.nn.DataParallel)
-        #                   else self.generator)
 
         model_state_dict = real_model.state_dict()
-        # generator_state_dict = real_generator.state_dict()
+
         checkpoint = {
             'model': model_state_dict,
-            # 'generator': generator_state_dict,
             'opt': self.args,
             'optim': self.optim,
         }
         checkpoint_path = os.path.join(self.args.model_path, 'model_step_%d.pt' % step)
         logger.info("Saving checkpoint %s" % checkpoint_path)
-        # checkpoint_path = '%s_step_%d.pt' % (FLAGS.model_path, step)
+
         if (not os.path.exists(checkpoint_path)):
             torch.save(checkpoint, checkpoint_path)
             return checkpoint, checkpoint_path
