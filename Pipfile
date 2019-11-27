@@ -10,9 +10,10 @@ torch = "==1.1.0"
 transformers = "*"
 tensorboardx = "*"
 multiprocess = "*"
-pyrouge = "*"
 pytorch-pretrained-bert = "*"
 stanfordnlp = "*"
+rouge = "*"
+tqdm = "*"
 
 [requires]
 python_version = "3.7"
