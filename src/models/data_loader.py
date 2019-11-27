@@ -2,7 +2,7 @@ import os
 import gc
 import glob
 import random
-
+import itertools
 import torch
 
 from src.others.logging import logger
@@ -112,18 +112,33 @@ def simple_batch_size_fn(new, count):
     return src_elements
 
 
+
 class Dataloader(object):
-    def __init__(self, args, datasets,  batch_size,
-                 device, shuffle, is_test):
+    def __init__(self, args, datasets, batch_size, device, shuffle, is_test):
         self.args = args
-        self.datasets = datasets
+        self.datasets, datasets_ = itertools.tee(datasets)
         self.batch_size = batch_size
         self.device = device
         self.shuffle = shuffle
         self.is_test = is_test
-        self.cur_iter = self._next_dataset_iterator(datasets)
+        self._len = self._init_len(datasets_)
+        self.cur_iter = self._next_dataset_iterator(self.datasets)
 
         assert self.cur_iter is not None
+    
+
+    def _init_len(self, datasets):
+        len_ = 0
+        for dataset in datasets:
+            len_ += len(list(dataset))
+        del datasets
+
+        return len_
+
+
+    def __len__(self):
+        return self._len
+
 
     def __iter__(self):
         dataset_iter = (d for d in self.datasets)
@@ -143,12 +158,14 @@ class Dataloader(object):
                 gc.collect()
 
             self.cur_dataset = next(dataset_iter)
+
         except StopIteration:
             return None
 
         return DataIterator(args = self.args,
             dataset=self.cur_dataset,  batch_size=self.batch_size,
             device=self.device, shuffle=self.shuffle, is_test=self.is_test)
+
 
 
 class DataIterator(object):
@@ -164,6 +181,7 @@ class DataIterator(object):
 
         self._iterations_this_epoch = 0
 
+
     def data(self):
         if self.shuffle:
             random.shuffle(self.dataset)
@@ -173,30 +191,31 @@ class DataIterator(object):
 
     def preprocess(self, ex, is_test):
         src = ex['src']
-        if('labels' in ex):
+        if ('labels' in ex):
             labels = ex['labels']
         else:
             labels = ex['src_sent_labels']
 
         segs = ex['segs']
-        if(not self.args.use_interval):
+        if (not self.args.use_interval):
             segs=[0]*len(segs)
         clss = ex['clss']
         src_txt = ex['src_txt']
         tgt_txt = ex['tgt_txt']
 
-        if(is_test):
+        if (is_test):
             return src,labels,segs, clss, src_txt, tgt_txt
         else:
             return src,labels,segs, clss
 
+
     def batch_buffer(self, data, batch_size):
         minibatch, size_so_far = [], 0
         for ex in data:
-            if(len(ex['src'])==0):
+            if (len(ex['src'])==0):
                 continue
             ex = self.preprocess(ex, self.is_test)
-            if(ex is None):
+            if (ex is None):
                 continue
             minibatch.append(ex)
             size_so_far = simple_batch_size_fn(ex, len(minibatch))
@@ -209,19 +228,21 @@ class DataIterator(object):
         if minibatch:
             yield minibatch
 
+
     def create_batches(self):
         """ Create batches """
         data = self.data()
         for buffer in self.batch_buffer(data, self.batch_size * 50):
-
             p_batch = sorted(buffer, key=lambda x: len(x[3]))
             p_batch = batch(p_batch, self.batch_size)
 
             p_batch = list(p_batch)
+
             if (self.shuffle):
                 random.shuffle(p_batch)
             for b in p_batch:
                 yield b
+
 
     def __iter__(self):
         while True:
@@ -234,6 +255,6 @@ class DataIterator(object):
                     self.iterations += 1
                     self._iterations_this_epoch += 1
                     batch = Batch(minibatch, self.device, self.is_test)
-
+                    if self.iterations > 10: break
                     yield batch
             return

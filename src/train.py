@@ -192,20 +192,24 @@ def validate(args, device_id, pt, step):
 
 def test(args, device_id, pt, step):
     device = "cpu" if args.visible_gpus == "-1" else "cuda"
+    
     if (pt != ""):
         test_from = pt
     else:
         test_from = args.test_from
-    logger.info("Loading checkpoint from %s" % test_from)
+    
+    logger.info("| Loading checkpoint from {}.".format(test_from))
+
     checkpoint = torch.load(test_from, map_location=lambda storage, loc: storage)
     opt = vars(checkpoint["opt"])
+
     for k in opt.keys():
         if (k in model_flags):
             setattr(args, k, opt[k])
     print(args)
 
     config = BertConfig.from_json_file(args.bert_config_path)
-    model = Summarizer(args, device, load_pretrained_bert=False, bert_config = config)
+    model = Summarizer(args, device, load_pretrained_bert=False, bert_config=config)
     model.load_cp(checkpoint)
     model.eval()
 
@@ -213,7 +217,7 @@ def test(args, device_id, pt, step):
                                   args.batch_size, device,
                                   shuffle=False, is_test=True)
     trainer = build_trainer(args, device_id, model, None)
-    trainer.test(test_iter,step)
+    trainer.test(test_iter, step)
 
 
 def baseline(args, cal_lead=False, cal_oracle=False):
@@ -274,17 +278,17 @@ def train(args, device_id):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("-encoder", default="classifier", type=str, choices=["classifier","transformer","rnn","baseline"])
+    parser.add_argument("-encoder", default="classifier", type=str, choices=["classifier", "transformer", "rnn", "baseline"])
     parser.add_argument("-mode", default="train", type=str, choices=["train", "validate", "test", 'lead', "oracle"])
-    parser.add_argument("-bert_data_path", default="../bert_data/cnndm")
-    parser.add_argument("-model_path", default="../models/")
-    parser.add_argument("-result_path", default="../results/cnndm")
-    parser.add_argument("-temp_dir", default="../temp")
-    parser.add_argument("-bert_config_path", default="../bert_config_uncased_base.json")
+    parser.add_argument("-bert_data_path", default="./bert_data/cnndm")
+    parser.add_argument("-model_path", default="./models/")
+    parser.add_argument("-result_path", default="./results/cnndm")
+    parser.add_argument("-temp_dir", required=True)
+    parser.add_argument("-bert_config_path", default="./bert_config_uncased_base.json")
 
     parser.add_argument("-batch_size", default=1000, type=int)
 
-    parser.add_argument("-use_interval", type=str2bool, nargs="?",const=True,default=True)
+    parser.add_argument("-use_interval", type=str2bool, nargs="?", const=True, default=True)
     parser.add_argument("-hidden_size", default=128, type=int)
     parser.add_argument("-ff_size", default=512, type=int)
     parser.add_argument("-heads", default=4, type=int)
@@ -292,7 +296,7 @@ if __name__ == "__main__":
     parser.add_argument("-rnn_size", default=512, type=int)
 
     parser.add_argument("-param_init", default=0, type=float)
-    parser.add_argument("-param_init_glorot", type=str2bool, nargs="?",const=True,default=True)
+    parser.add_argument("-param_init_glorot", type=str2bool, nargs="?", const=True, default=True)
     parser.add_argument("-dropout", default=0.1, type=float)
     parser.add_argument("-optim", default="adam", type=str)
     parser.add_argument("-lr", default=1, type=float)
@@ -307,7 +311,7 @@ if __name__ == "__main__":
     parser.add_argument("-world_size", default=1, type=int)
     parser.add_argument("-report_every", default=1, type=int)
     parser.add_argument("-train_steps", default=1000, type=int)
-    parser.add_argument("-recall_eval", type=str2bool, nargs="?",const=True,default=False)
+    parser.add_argument("-recall_eval", type=str2bool, nargs="?", const=True, default=False)
 
 
     parser.add_argument("-visible_gpus", default="-1", type=str)
@@ -316,10 +320,10 @@ if __name__ == "__main__":
     parser.add_argument("-dataset", default="")
     parser.add_argument("-seed", default=666, type=int)
 
-    parser.add_argument("-test_all", type=str2bool, nargs="?",const=True,default=False)
+    parser.add_argument("-test_all", type=str2bool, nargs="?", const=True, default=False)
     parser.add_argument("-test_from", default="")
     parser.add_argument("-train_from", default="")
-    parser.add_argument("-report_rouge", type=str2bool, nargs="?",const=True,default=True)
+    parser.add_argument("-report_rouge", type=str2bool, nargs="?", const=True, default=True)
     parser.add_argument("-block_trigram", type=str2bool, nargs="?", const=True, default=True)
 
     args = parser.parse_args()
