@@ -82,8 +82,7 @@ def load_dataset(args, corpus_type, shuffle):
 
     def _lazy_dataset_loader(pt_file, corpus_type):
         dataset = torch.load(pt_file)
-        logger.info('Loading %s dataset from %s, number of examples: %d' %
-                    (corpus_type, pt_file, len(dataset)))
+        logger.info('Loading {} dataset from {}, number of examples: {}'.format(corpus_type, pt_file, len(dataset)))
         return dataset
 
     # Sort the glob output by file name (by increasing indexes).
@@ -163,7 +162,7 @@ class Dataloader(object):
             return None
 
         return DataIterator(args = self.args,
-            dataset=self.cur_dataset,  batch_size=self.batch_size,
+            dataset=self.cur_dataset, batch_size=self.batch_size,
             device=self.device, shuffle=self.shuffle, is_test=self.is_test)
 
 
@@ -198,19 +197,20 @@ class DataIterator(object):
 
         segs = ex['segs']
         if (not self.args.use_interval):
-            segs=[0]*len(segs)
+            segs = [0] * len(segs)
         clss = ex['clss']
         src_txt = ex['src_txt']
         tgt_txt = ex['tgt_txt']
 
         if (is_test):
-            return src,labels,segs, clss, src_txt, tgt_txt
+            return src, labels,segs, clss, src_txt, tgt_txt
         else:
-            return src,labels,segs, clss
+            return src, labels,segs, clss
 
 
     def batch_buffer(self, data, batch_size):
         minibatch, size_so_far = [], 0
+
         for ex in data:
             if (len(ex['src'])==0):
                 continue
@@ -225,6 +225,7 @@ class DataIterator(object):
             elif size_so_far > batch_size:
                 yield minibatch[:-1]
                 minibatch, size_so_far = minibatch[-1:], simple_batch_size_fn(ex, 1)
+
         if minibatch:
             yield minibatch
 
@@ -238,8 +239,8 @@ class DataIterator(object):
 
             p_batch = list(p_batch)
 
-            if (self.shuffle):
-                random.shuffle(p_batch)
+            if (self.shuffle): random.shuffle(p_batch)
+
             for b in p_batch:
                 yield b
 
@@ -250,11 +251,9 @@ class DataIterator(object):
             for idx, minibatch in enumerate(self.batches):
                 if len(minibatch) > 0:
                     # fast-forward if loaded from state
-                    if self._iterations_this_epoch > idx:
-                        continue
+                    if self._iterations_this_epoch > idx: continue
                     self.iterations += 1
                     self._iterations_this_epoch += 1
                     batch = Batch(minibatch, self.device, self.is_test)
-                    if self.iterations > 10: break
                     yield batch
             return

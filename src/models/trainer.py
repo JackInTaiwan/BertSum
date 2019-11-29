@@ -33,7 +33,7 @@ def build_trainer(args, device_id, model,
         model_saver(:obj:`onmt.models.ModelSaverBase`): the utility object
             used to save the model
     """
-    device = "cpu" if args.visible_gpus == '-1' else "cuda"
+    device = "cpu" if args.visible_gpus == "-1" else "cuda"
 
 
     grad_accum_count = args.accum_count
@@ -45,7 +45,7 @@ def build_trainer(args, device_id, model,
         gpu_rank = 0
         n_gpu = 0
 
-    print('gpu_rank %d' % gpu_rank)
+    print("gpu_rank %d" % gpu_rank)
 
     tensorboard_log_dir = args.model_path
 
@@ -57,7 +57,7 @@ def build_trainer(args, device_id, model,
 
     if (model):
         n_params = _tally_parameters(model)
-        logger.info('* number of parameters: %d' % n_params)
+        logger.info("* number of parameters: %d" % n_params)
 
     return trainer
 
@@ -100,7 +100,7 @@ class Trainer(object):
         self.gpu_rank = gpu_rank
         self.report_manager = report_manager
 
-        self.loss = torch.nn.BCELoss(reduction='none')
+        self.loss = torch.nn.BCELoss(reduction="none")
         assert grad_accum_count > 0
         # Set model in training mode.
         if (model):
@@ -124,7 +124,7 @@ class Trainer(object):
         Return:
             None
         """
-        logger.info('| Start training ...')
+        logger.info("| Start training ...")
 
         step =  self.optim._step + 1
         true_batchs = []
@@ -228,11 +228,12 @@ class Trainer(object):
         if (not cal_lead and not cal_oracle):
             self.model.eval()
         stats = Statistics()
+        
+        can_path = os.path.join(self.args.result_path, "_step{}.candidate".format(step))
+        gold_path = os.path.join(self.args.result_path, "_step{}.gold".format(step))
 
-        can_path = '%s_step%d.candidate'%(self.args.result_path,step)
-        gold_path = '%s_step%d.gold' % (self.args.result_path, step)
-        with open(can_path, 'w') as save_pred:
-            with open(gold_path, 'w') as save_gold:
+        with open(can_path, "w") as save_pred:
+            with open(gold_path, "w") as save_gold:
                 with torch.no_grad():
                     with tqdm(test_iter) as pbar:
                         for batch in pbar:
@@ -280,21 +281,21 @@ class Trainer(object):
                                     if ((not cal_oracle) and (not self.args.recall_eval) and len(_pred) == 3):
                                         break
                                 
-                                _pred = '<q>'.join(_pred)
+                                _pred = "<q>".join(_pred)
                                 if (self.args.recall_eval):
-                                    _pred = ' '.join(_pred.split()[:len(batch.tgt_str[i].split())])
+                                    _pred = " ".join(_pred.split()[:len(batch.tgt_str[i].split())])
 
                                 pred.append(_pred)
                                 gold.append(batch.tgt_str[i])
 
                             for i in range(len(gold)):
-                                save_gold.write(gold[i].strip()+'\n')
+                                save_gold.write(gold[i].strip()+"\n")
                             for i in range(len(pred)):
-                                save_pred.write(pred[i].strip()+'\n')
+                                save_pred.write(pred[i].strip()+"\n")
 
         if (step != -1 and self.args.report_rouge):
             rouges = test_rouge(self.args.temp_dir, can_path, gold_path)
-            logger.info('Rouges at step %d \n%s' % (step, rouge_results_to_str(rouges)))
+            logger.info("Rouges at step %d \n%s" % (step, rouge_results_to_str(rouges)))
 
         self._report_step(0, step, valid_stats=stats)
 
@@ -358,11 +359,11 @@ class Trainer(object):
         model_state_dict = real_model.state_dict()
 
         checkpoint = {
-            'model': model_state_dict,
-            'opt': self.args,
-            'optim': self.optim,
+            "model": model_state_dict,
+            "opt": self.args,
+            "optim": self.optim,
         }
-        checkpoint_path = os.path.join(self.args.model_path, 'model_step_%d.pt' % step)
+        checkpoint_path = os.path.join(self.args.model_path, "model_step_%d.pt" % step)
         logger.info("Saving checkpoint %s" % checkpoint_path)
 
         if (not os.path.exists(checkpoint_path)):
