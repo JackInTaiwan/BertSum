@@ -283,7 +283,7 @@ if __name__ == "__main__":
     parser.add_argument("-bert_data_path", default="./bert_data/cnndm")
     parser.add_argument("-model_path", default="./models/")
     parser.add_argument("-result_path", default="./results/cnndm")
-    parser.add_argument("-temp_dir", required=True)
+    parser.add_argument("-temp_dir", required=True, default="./tmp/")
     parser.add_argument("-bert_config_path", default="./bert_config_uncased_base.json")
 
     parser.add_argument("-batch_size", default=1000, type=int)
