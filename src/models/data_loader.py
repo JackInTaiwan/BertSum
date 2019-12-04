@@ -16,7 +16,7 @@ class Batch(object):
         rtn_data = [d + [pad_id] * (width - len(d)) for d in data]
         return rtn_data
 
-    def __init__(self, data=None, device=None,  is_test=False):
+    def __init__(self, data=None, device=None, is_test=False):
         """Create a Batch from a list of examples."""
         if data is not None:
             self.batch_size = len(data)
@@ -115,28 +115,14 @@ def simple_batch_size_fn(new, count):
 class Dataloader(object):
     def __init__(self, args, datasets, batch_size, device, shuffle, is_test):
         self.args = args
-        self.datasets, datasets_ = itertools.tee(datasets)
+        self.datasets = datasets
         self.batch_size = batch_size
         self.device = device
         self.shuffle = shuffle
         self.is_test = is_test
-        self._len = self._init_len(datasets_)
-        self.cur_iter = self._next_dataset_iterator(self.datasets)
+        self.cur_iter = self._next_dataset_iterator(datasets)
 
         assert self.cur_iter is not None
-    
-
-    def _init_len(self, datasets):
-        len_ = 0
-        for dataset in datasets:
-            len_ += len(list(dataset))
-        del datasets
-
-        return len_
-
-
-    def __len__(self):
-        return self._len
 
 
     def __iter__(self):

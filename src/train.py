@@ -182,7 +182,7 @@ def validate(args, device_id, pt, step):
     model.load_cp(checkpoint)
     model.eval()
 
-    valid_iter =data_loader.Dataloader(args, load_dataset(args, "valid", shuffle=False),
+    valid_iter = data_loader.Dataloader(args, load_dataset(args, "valid", shuffle=False),
                                   args.batch_size, device,
                                   shuffle=False, is_test=False)
     trainer = build_trainer(args, device_id, model, None)
