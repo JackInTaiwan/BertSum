@@ -82,6 +82,8 @@ def test_rouge(temp_dir, cand, ref):
         candidates_, references_ = [], []
         for cand, ref in zip(candidates, references):
             if len(cand) * len(ref) != 0:
+                cand = " ".join(cand.split("<q>"))
+                ref = " ".join(ref.split("<q>"))
                 candidates_.append(cand)
                 references_.append(ref)
 
