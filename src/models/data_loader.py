@@ -154,7 +154,7 @@ class Dataloader(object):
 
 
 class DataIterator(object):
-    def __init__(self, args, dataset,  batch_size,  device=None, is_test=False,
+    def __init__(self, args, dataset, batch_size, device=None, is_test=False,
                  shuffle=True):
         self.args = args
         self.batch_size, self.is_test, self.dataset = batch_size, is_test, dataset
@@ -189,9 +189,9 @@ class DataIterator(object):
         tgt_txt = ex['tgt_txt']
 
         if (is_test):
-            return src, labels,segs, clss, src_txt, tgt_txt
+            return src, labels, segs, clss, src_txt, tgt_txt
         else:
-            return src, labels,segs, clss
+            return src, labels, segs, clss
 
 
     def batch_buffer(self, data, batch_size):
@@ -220,9 +220,8 @@ class DataIterator(object):
         """ Create batches """
         data = self.data()
         for buffer in self.batch_buffer(data, self.batch_size * 50):
-            p_batch = sorted(buffer, key=lambda x: len(x[3]))
+            p_batch = sorted(buffer, key=lambda x: len(x[3])) if not self.is_test else buffer
             p_batch = batch(p_batch, self.batch_size)
-
             p_batch = list(p_batch)
 
             if (self.shuffle): random.shuffle(p_batch)

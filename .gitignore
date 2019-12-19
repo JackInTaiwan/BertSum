@@ -9,3 +9,6 @@ __pycache__/
 
 # stanfordnlp
 stanfordnlp_resources/
+
+# dev files
+notes.py

@@ -87,7 +87,7 @@ class Trainer(object):
                 Thus nothing will be saved if this parameter is None
     """
 
-    def __init__(self,  args, model,  optim,
+    def __init__(self,  args, model, optim,
                   grad_accum_count=1, n_gpu=1, gpu_rank=1,
                   report_manager=None):
         # Basic attributes.
@@ -221,7 +221,7 @@ class Trainer(object):
             tri_c = _get_ngrams(3, c.split())
             for s in p:
                 tri_s = _get_ngrams(3, s.split())
-                if len(tri_c.intersection(tri_s))>0:
+                if len(tri_c.intersection(tri_s)) > 0:
                     return True
             return False
 
