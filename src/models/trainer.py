@@ -1,15 +1,17 @@
 import os
 
-import numpy as np
 import torch
+import numpy as np
+import src.distributed as distributed
+
+from tqdm import tqdm
 from tensorboardX import SummaryWriter
 
-import distributed
-# import onmt
-from models.reporter import ReportMgr
-from models.stats import Statistics
-from others.logging import logger
-from others.utils import test_rouge, rouge_results_to_str
+from src.models.reporter import ReportMgr
+from src.models.stats import Statistics
+from src.others.logging import logger
+from src.others.utils import test_rouge, rouge_results_to_str
+
 
 
 def _tally_parameters(model):
@@ -31,7 +33,7 @@ def build_trainer(args, device_id, model,
         model_saver(:obj:`onmt.models.ModelSaverBase`): the utility object
             used to save the model
     """
-    device = "cpu" if args.visible_gpus == '-1' else "cuda"
+    device = "cpu" if args.visible_gpus == "-1" else "cuda"
 
 
     grad_accum_count = args.accum_count
@@ -43,7 +45,7 @@ def build_trainer(args, device_id, model,
         gpu_rank = 0
         n_gpu = 0
 
-    print('gpu_rank %d' % gpu_rank)
+    print("gpu_rank %d" % gpu_rank)
 
     tensorboard_log_dir = args.model_path
 
@@ -53,10 +55,9 @@ def build_trainer(args, device_id, model,
 
     trainer = Trainer(args, model, optim, grad_accum_count, n_gpu, gpu_rank, report_manager)
 
-    # print(tr)
     if (model):
         n_params = _tally_parameters(model)
-        logger.info('* number of parameters: %d' % n_params)
+        logger.info("* number of parameters: %d" % n_params)
 
     return trainer
 
@@ -99,7 +100,7 @@ class Trainer(object):
         self.gpu_rank = gpu_rank
         self.report_manager = report_manager
 
-        self.loss = torch.nn.BCELoss(reduction='none')
+        self.loss = torch.nn.BCELoss(reduction="none")
         assert grad_accum_count > 0
         # Set model in training mode.
         if (model):
@@ -123,9 +124,8 @@ class Trainer(object):
         Return:
             None
         """
-        logger.info('Start training...')
+        logger.info("| Start training ...")
 
-        # step =  self.optim._step + 1
         step =  self.optim._step + 1
         true_batchs = []
         accum = 0
@@ -137,39 +137,37 @@ class Trainer(object):
         self._start_report_manager(start_time=total_stats.start_time)
 
         while step <= train_steps:
-
             reduce_counter = 0
-            for i, batch in enumerate(train_iter):
-                if self.n_gpu == 0 or (i % self.n_gpu == self.gpu_rank):
+            with tqdm(train_iter) as pbar:
+                for i, batch in enumerate(pbar):
+                    if self.n_gpu == 0 or (i % self.n_gpu == self.gpu_rank):
+                        true_batchs.append(batch)
+                        normalization += batch.batch_size
+                        accum += 1
+                        if accum == self.grad_accum_count:
+                            reduce_counter += 1
+                            if self.n_gpu > 1:
+                                normalization = sum(distributed
+                                                    .all_gather_list
+                                                    (normalization))
+                            self._gradient_accumulation(
+                                true_batchs, normalization, total_stats,
+                                report_stats)
 
-                    true_batchs.append(batch)
-                    normalization += batch.batch_size
-                    accum += 1
-                    if accum == self.grad_accum_count:
-                        reduce_counter += 1
-                        if self.n_gpu > 1:
-                            normalization = sum(distributed
-                                                .all_gather_list
-                                                (normalization))
+                            report_stats = self._maybe_report_training(
+                                step, train_steps,
+                                self.optim.learning_rate,
+                                report_stats)
 
-                        self._gradient_accumulation(
-                            true_batchs, normalization, total_stats,
-                            report_stats)
+                            true_batchs = []
+                            accum = 0
+                            normalization = 0
+                            if (step % self.save_checkpoint_steps == 0 and self.gpu_rank == 0):
+                                self._save(step)
 
-                        report_stats = self._maybe_report_training(
-                            step, train_steps,
-                            self.optim.learning_rate,
-                            report_stats)
-
-                        true_batchs = []
-                        accum = 0
-                        normalization = 0
-                        if (step % self.save_checkpoint_steps == 0 and self.gpu_rank == 0):
-                            self._save(step)
-
-                        step += 1
-                        if step > train_steps:
-                            break
+                            step += 1
+                            if step > train_steps:
+                                break
             train_iter = train_iter_fct()
 
         return total_stats
@@ -230,72 +228,75 @@ class Trainer(object):
         if (not cal_lead and not cal_oracle):
             self.model.eval()
         stats = Statistics()
+        
+        can_path = os.path.join(self.args.result_path, "_step{}.candidate".format(step))
+        gold_path = os.path.join(self.args.result_path, "_step{}.gold".format(step))
 
-        can_path = '%s_step%d.candidate'%(self.args.result_path,step)
-        gold_path = '%s_step%d.gold' % (self.args.result_path, step)
-        with open(can_path, 'w') as save_pred:
-            with open(gold_path, 'w') as save_gold:
+        with open(can_path, "w") as save_pred:
+            with open(gold_path, "w") as save_gold:
                 with torch.no_grad():
-                    for batch in test_iter:
-                        src = batch.src
-                        labels = batch.labels
-                        segs = batch.segs
-                        clss = batch.clss
-                        mask = batch.mask
-                        mask_cls = batch.mask_cls
+                    with tqdm(test_iter) as pbar:
+                        for batch in pbar:
+                            src = batch.src
+                            labels = batch.labels
+                            segs = batch.segs
+                            clss = batch.clss
+                            mask = batch.mask
+                            mask_cls = batch.mask_cls
 
+                            gold, pred = [], []
 
-                        gold = []
-                        pred = []
+                            if (cal_lead):
+                                selected_ids = [list(range(batch.clss.size(1)))] * batch.batch_size
+                            elif (cal_oracle):
+                                selected_ids = [[j for j in range(batch.clss.size(1)) if labels[i][j] == 1] for i in
+                                                range(batch.batch_size)]
+                            else:
+                                sent_scores, mask = self.model(src, segs, clss, mask, mask_cls)
 
-                        if (cal_lead):
-                            selected_ids = [list(range(batch.clss.size(1)))] * batch.batch_size
-                        elif (cal_oracle):
-                            selected_ids = [[j for j in range(batch.clss.size(1)) if labels[i][j] == 1] for i in
-                                            range(batch.batch_size)]
-                        else:
-                            sent_scores, mask = self.model(src, segs, clss, mask, mask_cls)
+                                loss = self.loss(sent_scores, labels.float())
+                                loss = (loss * mask.float()).sum()
+                                batch_stats = Statistics(float(loss.cpu().data.numpy()), len(labels))
+                                stats.update(batch_stats)
 
-                            loss = self.loss(sent_scores, labels.float())
-                            loss = (loss * mask.float()).sum()
-                            batch_stats = Statistics(float(loss.cpu().data.numpy()), len(labels))
-                            stats.update(batch_stats)
+                                sent_scores = sent_scores + mask.float()
+                                sent_scores = sent_scores.cpu().data.numpy()
+                                selected_ids = np.argsort(-sent_scores, 1)
 
-                            sent_scores = sent_scores + mask.float()
-                            sent_scores = sent_scores.cpu().data.numpy()
-                            selected_ids = np.argsort(-sent_scores, 1)
-                        # selected_ids = np.sort(selected_ids,1)
-                        for i, idx in enumerate(selected_ids):
-                            _pred = []
-                            if(len(batch.src_str[i])==0):
-                                continue
-                            for j in selected_ids[i][:len(batch.src_str[i])]:
-                                if(j>=len( batch.src_str[i])):
+                            for i, idx in enumerate(selected_ids):
+                                _pred = []
+                                if (len(batch.src_str[i]) == 0):
                                     continue
-                                candidate = batch.src_str[i][j].strip()
-                                if(self.args.block_trigram):
-                                    if(not _block_tri(candidate,_pred)):
+
+                                for j in selected_ids[i][:len(batch.src_str[i])]:
+                                    if (j >= len(batch.src_str[i])):
+                                        continue
+                                    candidate = batch.src_str[i][j].strip()
+                                    if (self.args.block_trigram):
+                                        if (not _block_tri(candidate,_pred)):
+                                            _pred.append(candidate)
+                                    else:
                                         _pred.append(candidate)
-                                else:
-                                    _pred.append(candidate)
 
-                                if ((not cal_oracle) and (not self.args.recall_eval) and len(_pred) == 3):
-                                    break
+                                    if ((not cal_oracle) and (not self.args.recall_eval) and len(_pred) == 3):
+                                        break
+                                
+                                _pred = "<q>".join(_pred)
+                                if (self.args.recall_eval):
+                                    _pred = " ".join(_pred.split()[:len(batch.tgt_str[i].split())])
 
-                            _pred = '<q>'.join(_pred)
-                            if(self.args.recall_eval):
-                                _pred = ' '.join(_pred.split()[:len(batch.tgt_str[i].split())])
+                                pred.append(_pred)
+                                gold.append(batch.tgt_str[i])
 
-                            pred.append(_pred)
-                            gold.append(batch.tgt_str[i])
+                            for i in range(len(gold)):
+                                save_gold.write(gold[i].strip()+"\n")
+                            for i in range(len(pred)):
+                                save_pred.write(pred[i].strip()+"\n")
 
-                        for i in range(len(gold)):
-                            save_gold.write(gold[i].strip()+'\n')
-                        for i in range(len(pred)):
-                            save_pred.write(pred[i].strip()+'\n')
-        if(step!=-1 and self.args.report_rouge):
+        if (step != -1 and self.args.report_rouge):
             rouges = test_rouge(self.args.temp_dir, can_path, gold_path)
-            logger.info('Rouges at step %d \n%s' % (step, rouge_results_to_str(rouges)))
+            logger.info("Rouges at step %d \n%s" % (step, rouge_results_to_str(rouges)))
+
         self._report_step(0, step, valid_stats=stats)
 
         return stats
@@ -323,7 +324,6 @@ class Trainer(object):
             loss = self.loss(sent_scores, labels.float())
             loss = (loss*mask.float()).sum()
             (loss/loss.numel()).backward()
-            # loss.div(float(normalization)).backward()
 
             batch_stats = Statistics(float(loss.cpu().data.numpy()), normalization)
 
@@ -355,21 +355,17 @@ class Trainer(object):
 
     def _save(self, step):
         real_model = self.model
-        # real_generator = (self.generator.module
-        #                   if isinstance(self.generator, torch.nn.DataParallel)
-        #                   else self.generator)
 
         model_state_dict = real_model.state_dict()
-        # generator_state_dict = real_generator.state_dict()
+
         checkpoint = {
-            'model': model_state_dict,
-            # 'generator': generator_state_dict,
-            'opt': self.args,
-            'optim': self.optim,
+            "model": model_state_dict,
+            "opt": self.args,
+            "optim": self.optim,
         }
-        checkpoint_path = os.path.join(self.args.model_path, 'model_step_%d.pt' % step)
+        checkpoint_path = os.path.join(self.args.model_path, "model_step_%d.pt" % step)
         logger.info("Saving checkpoint %s" % checkpoint_path)
-        # checkpoint_path = '%s_step_%d.pt' % (FLAGS.model_path, step)
+
         if (not os.path.exists(checkpoint_path)):
             torch.save(checkpoint, checkpoint_path)
             return checkpoint, checkpoint_path

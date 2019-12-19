@@ -1,0 +1,11 @@
+# dirs
+__pycache__/
+
+# vscode
+.vscode/
+
+# pipenv
+.venv/
+
+# stanfordnlp
+stanfordnlp_resources/

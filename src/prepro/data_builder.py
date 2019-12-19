@@ -7,15 +7,16 @@ import os
 import re
 import subprocess
 import time
-from os.path import join as pjoin
-
 import torch
+import stanfordnlp
+
 from multiprocess import Pool
+from tqdm import tqdm
 from pytorch_pretrained_bert import BertTokenizer
 
-from others.logging import logger
-from others.utils import clean
-from prepro.utils import _get_word_ngrams
+from src.others.logging import logger
+from src.others.utils import clean
+from src.prepro.utils import _get_word_ngrams
 
 
 def load_json(p, lower):
@@ -204,45 +205,59 @@ def format_to_bert(args):
         datasets = ['train', 'valid', 'test']
     for corpus_type in datasets:
         a_lst = []
-        for json_f in glob.glob(pjoin(args.raw_path, '*' + corpus_type + '.*.json')):
+        for json_f in glob.glob(os.path.join(args.raw_path, '*' + corpus_type + '.*.json')):
             real_name = json_f.split('/')[-1]
-            a_lst.append((json_f, args, pjoin(args.save_path, real_name.replace('json', 'bert.pt'))))
-        print(a_lst)
+            a_lst.append((json_f, args, os.path.join(args.save_path, real_name.replace('json', 'bert.pt'))))
+            print('----use')
         pool = Pool(args.n_cpus)
         for d in pool.imap(_format_to_bert, a_lst):
+            print('----use d')
             pass
-
+        print("----end")
         pool.close()
         pool.join()
 
 
 def tokenize(args):
-    stories_dir = os.path.abspath(args.raw_path)
-    tokenized_stories_dir = os.path.abspath(args.save_path)
+    stanfordnlp_models_dir, lang = args.snlp_models_dir, args.lang
+    raw_data_dir = args.raw_path
+    tokenized_stories_dir = args.save_path
 
-    print("Preparing to tokenize %s to %s..." % (stories_dir, tokenized_stories_dir))
-    stories = os.listdir(stories_dir)
-    # make IO list file
-    print("Making list of files to tokenize...")
-    with open("mapping_for_corenlp.txt", "w") as f:
-        for s in stories:
-            if (not s.endswith('story')):
-                continue
-            f.write("%s\n" % (os.path.join(stories_dir, s)))
-    command = ['java', 'edu.stanford.nlp.pipeline.StanfordCoreNLP' ,'-annotators', 'tokenize,ssplit', '-ssplit.newlineIsSentenceBreak', 'always', '-filelist', 'mapping_for_corenlp.txt', '-outputFormat', 'json', '-outputDirectory', tokenized_stories_dir]
-    print("Tokenizing %i files in %s and saving in %s..." % (len(stories), stories_dir, tokenized_stories_dir))
-    subprocess.call(command)
-    print("Stanford CoreNLP Tokenizer has finished.")
-    os.remove("mapping_for_corenlp.txt")
+    if not os.path.isdir(stanfordnlp_models_dir):
+        stanfordnlp.download(lang, resource_dir=stanfordnlp_models_dir, confirm_if_exists=True)      # default "en"
+    
+    snlp = stanfordnlp.Pipeline(processors="tokenize",lang=lang, models_dir=stanfordnlp_models_dir)
 
-    # Check that the tokenized stories directory contains the same number of files as the original directory
-    num_orig = len(os.listdir(stories_dir))
-    num_tokenized = len(os.listdir(tokenized_stories_dir))
-    if num_orig != num_tokenized:
-        raise Exception(
-            "The tokenized stories directory %s contains %i files, but it should contain the same number as %s (which has %i files). Was there an error during tokenization?" % (
-            tokenized_stories_dir, num_tokenized, stories_dir, num_orig))
-    print("Successfully finished tokenizing %s to %s.\n" % (stories_dir, tokenized_stories_dir))
+    valid_file_count = 0
+    with tqdm(os.listdir(raw_data_dir)) as pbar:
+        for fn in pbar:
+            # check the file extension type
+            if fn.split(".")[-1] != "story": continue
+            else: valid_file_count += 1
+
+            fp = os.path.join(raw_data_dir, fn)
+            with open(fp, "r") as f:
+                data = f.read()
+                doc = snlp(data)
+            
+            # preprocess sentences
+            sentences = []
+            for i, sent in enumerate(doc.sentences):
+                sent_ = {}
+                sent_["index"] = i
+                sent_["tokens"] = list(map(lambda token: {"index": int(token.index), "word": token.text, "originalText": token.text}, sent.tokens))
+                sentences.append(sent_)
+
+            output = {}
+            output["docId"] = fn.split('.')[0]
+            output["sentences"] = sentences
+
+            # save the tokenized ouput json file
+            output_fp = os.path.join(tokenized_stories_dir, "{}.json".format(fn.split(".")[0]))
+            with open(output_fp, "w") as f:
+                json.dump(output, f)
+
+    print("Finish tokenizing {} files in {} to {}.".format(valid_file_count, raw_data_dir, tokenized_stories_dir))
 
 
 def _format_to_bert(params):
@@ -250,15 +265,16 @@ def _format_to_bert(params):
     if (os.path.exists(save_file)):
         logger.info('Ignore %s' % save_file)
         return
-
+    print('----_format use')
     bert = BertData(args)
-
+    print('---- after bertdata')
     logger.info('Processing %s' % json_file)
     jobs = json.load(open(json_file))
     datasets = []
     for d in jobs:
         source, tgt = d['src'], d['tgt']
         if (args.oracle_mode == 'greedy'):
+            print('---- use greedy')
             oracle_ids = greedy_selection(source, tgt, 3)
         elif (args.oracle_mode == 'combination'):
             oracle_ids = combination_selection(source, tgt, 3)
@@ -269,6 +285,7 @@ def _format_to_bert(params):
         b_data_dict = {"src": indexed_tokens, "labels": labels, "segs": segments_ids, 'clss': cls_ids,
                        'src_txt': src_txt, "tgt_txt": tgt_txt}
         datasets.append(b_data_dict)
+    print('----_format use 1')
     logger.info('Saving to %s' % save_file)
     torch.save(datasets, save_file)
     datasets = []
@@ -276,15 +293,25 @@ def _format_to_bert(params):
 
 
 def format_to_lines(args):
-    corpus_mapping = {}
+    # load mapping files
+    print('| Loading mapping files ...')
+    corpus_mapping = {"train": [], "valid": [], "test": []}
     for corpus_type in ['valid', 'test', 'train']:
         temp = []
-        for line in open(pjoin(args.map_path, 'mapping_' + corpus_type + '.txt')):
+        mapping_fp = os.path.join(args.map_path, "mapping_{}.txt".format(corpus_type))
+        if not os.path.exists(mapping_fp):
+            print("Mapping file '{}' doesn't exist. Skip the type of mapping files.".format(mapping_fp))
+            continue
+        for line in open(mapping_fp):
             temp.append(hashhex(line.strip()))
+            temp.append(line.strip())
         corpus_mapping[corpus_type] = {key.strip(): 1 for key in temp}
+
+    # load corresponding tokenized json files
+    print('| Loading tokenized json files ...')
     train_files, valid_files, test_files = [], [], []
-    for f in glob.glob(pjoin(args.raw_path, '*.json')):
-        real_name = f.split('/')[-1].split('.')[0]
+    for f in glob.glob(os.path.join(args.raw_path, '*.json')):
+        real_name = os.path.splitext(os.path.basename(f))
         if (real_name in corpus_mapping['valid']):
             valid_files.append(f)
         elif (real_name in corpus_mapping['test']):
@@ -292,6 +319,8 @@ def format_to_lines(args):
         elif (real_name in corpus_mapping['train']):
             train_files.append(f)
 
+    # convert to target lines json file
+    print('| Converting to line-based json files ...')
     corpora = {'train': train_files, 'valid': valid_files, 'test': test_files}
     for corpus_type in ['train', 'valid', 'test']:
         a_lst = [(f, args) for f in corpora[corpus_type]]
@@ -301,26 +330,24 @@ def format_to_lines(args):
         for d in pool.imap_unordered(_format_to_lines, a_lst):
             dataset.append(d)
             if (len(dataset) > args.shard_size):
-                pt_file = "{:s}.{:s}.{:d}.json".format(args.save_path, corpus_type, p_ct)
+                pt_file = os.path.join(args.save_path, "{}.{}.json".format(corpus_type, p_ct))
                 with open(pt_file, 'w') as save:
-                    # save.write('\n'.join(dataset))
                     save.write(json.dumps(dataset))
                     p_ct += 1
                     dataset = []
-
         pool.close()
         pool.join()
         if (len(dataset) > 0):
-            pt_file = "{:s}.{:s}.{:d}.json".format(args.save_path, corpus_type, p_ct)
+            pt_file = os.path.join(args.save_path, "{}.{}.json".format(corpus_type, p_ct))
             with open(pt_file, 'w') as save:
-                # save.write('\n'.join(dataset))
                 save.write(json.dumps(dataset))
                 p_ct += 1
                 dataset = []
+    
+    print('| Finish formating to lines-based json files !')
 
 
 def _format_to_lines(params):
     f, args = params
-    print(f)
     source, tgt = load_json(f, args.lower)
     return {'src': source, 'tgt': tgt}
